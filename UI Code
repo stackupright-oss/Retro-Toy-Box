@@ -1,0 +1,434 @@
+```react
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Terminal, Activity, Zap, Radio, Globe, ShieldAlert, Cpu, Power, Skull, Grid, FileText, Crosshair } from 'lucide-react';
+
+/* * AUDIO ENGINE
+ * Still using oscillators. Real professors don't need MP3s.
+ */
+const playSound = (type) => {
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    
+    if (type === 'boot') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(110, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.5);
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 1.5);
+      osc.start(now);
+      osc.stop(now + 1.5);
+    } else if (type === 'key') {
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, now);
+      gain.gain.setValueAtTime(0.05, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      osc.start(now);
+      osc.stop(now + 0.05);
+    } else if (type === 'alert') {
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.linearRampToValueAtTime(220, now + 0.3);
+      gain.gain.setValueAtTime(0.3, now);
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } else if (type === 'siren') {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.linearRampToValueAtTime(400, now + 0.5);
+        gain.gain.setValueAtTime(0.2, now);
+        osc.start(now);
+        osc.stop(now + 0.5);
+    } else if (type === 'scan') {
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.linearRampToValueAtTime(600, now + 0.2);
+      gain.gain.setValueAtTime(0.1, now);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } else if (type === 'win') {
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(500, now);
+        osc.frequency.linearRampToValueAtTime(1000, now + 0.2);
+        gain.gain.setValueAtTime(0.2, now);
+        osc.start(now);
+        osc.stop(now + 0.4);
+    }
+  } catch (e) {
+    // Silent failure is a valid pedagogical tool.
+  }
+};
+
+const Scanlines = () => (
+  <div className="pointer-events-none absolute inset-0 z-50 overflow-hidden rounded-lg">
+    <div className="absolute inset-0 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_4px,3px_100%] pointer-events-none" />
+    <div className="animate-scan absolute inset-0 bg-white/5 opacity-10 h-1 w-full top-0" style={{ animation: 'scan 6s linear infinite' }} />
+    {/* Screen Curvature Vignette */}
+    <div className="absolute inset-0 shadow-[inset_0_0_80px_rgba(0,0,0,0.7)] pointer-events-none"></div>
+  </div>
+);
+
+/* * * ASCII SCHEMATICS 
+ * Because vector graphics are for people who can't visualize in 8-bit.
+ */
+const Schematics = () => (
+    <div className="font-mono text-[10px] md:text-xs leading-none text-green-400 whitespace-pre overflow-hidden flex justify-center items-center h-full flex-col">
+        <div className="animate-pulse mb-4 text-center border-b border-green-500 pb-2 w-full">
+            SUBJECT: XENOMORPHIC DRONE
+        </div>
+        {`
+      .     .       .  .   . .   .   . .
+     .  .   .  .  .  . . . .   .  .  .
+       .   .  .    . .   .  .  .   .
+           _ _________ _
+          / |         | \\
+         /  |  MARK I |  \\
+        |___|_________|___|
+       /   /           \\   \\
+      /   /             \\   \\
+     /___/               \\___\\
+    /    /               \\    \\
+   /____/                 \\____\\
+        `}
+        <div className="mt-8 grid grid-cols-2 gap-8 w-full">
+            <div>
+                ARMOR: ABLATIVE<br/>
+                CPU: 6502 (OVERCLOCKED)<br/>
+                STATUS: DERELICT
+            </div>
+            <div className="text-right">
+                THREAT: LOW<br/>
+                VALUE: NEGLIGIBLE<br/>
+                ORIGIN: LV-426
+            </div>
+        </div>
+    </div>
+);
+
+/*
+ * TIC TAC TOE (WARGAMES MODE)
+ * The only winning move is not to play.
+ */
+const GlobalThermonuclearWar = ({ onGameOver }) => {
+    const [board, setBoard] = useState(Array(9).fill(null));
+    const [isPlayerTurn, setIsPlayerTurn] = useState(true);
+    const [status, setStatus] = useState("AWAITING INPUT");
+
+    const checkWinner = (squares) => {
+        const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        for (let i = 0; i < lines.length; i++) {
+            const [a,b,c] = lines[i];
+            if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) return squares[a];
+        }
+        return null;
+    };
+
+    useEffect(() => {
+        if (!isPlayerTurn && !checkWinner(board) && board.includes(null)) {
+            const timer = setTimeout(() => {
+                const emptyIndices = board.map((v, i) => v === null ? i : null).filter(v => v !== null);
+                const randomMove = emptyIndices[Math.floor(Math.random() * emptyIndices.length)];
+                
+                const newBoard = [...board];
+                newBoard[randomMove] = 'O';
+                setBoard(newBoard);
+                setIsPlayerTurn(true);
+                playSound('key');
+            }, 800);
+            return () => clearTimeout(timer);
+        }
+    }, [isPlayerTurn, board]);
+
+    const handleClick = (i) => {
+        if (board[i] || !isPlayerTurn || checkWinner(board)) return;
+        const newBoard = [...board];
+        newBoard[i] = 'X';
+        setBoard(newBoard);
+        setIsPlayerTurn(false);
+        playSound('key');
+    };
+
+    const winner = checkWinner(board);
+    const isDraw = !winner && !board.includes(null);
+
+    useEffect(() => {
+        if (winner) {
+            setStatus(`WINNER: ${winner}`);
+            playSound(winner === 'X' ? 'win' : 'alert');
+        } else if (isDraw) {
+            setStatus("STALEMATE DETECTED");
+            setTimeout(() => {
+                onGameOver("A STRANGE GAME. THE ONLY WINNING MOVE IS NOT TO PLAY.");
+            }, 2000);
+        }
+    }, [winner, isDraw, onGameOver]);
+
+    return (
+        <div className="h-full flex flex-col items-center justify-center">
+            <div className="mb-4 text-center animate-pulse">{status}</div>
+            <div className="grid grid-cols-3 gap-1 bg-green-900/50 p-1">
+                {board.map((cell, i) => (
+                    <button 
+                        key={i} 
+                        onClick={() => handleClick(i)}
+                        className="w-16 h-16 md:w-20 md:h-20 border border-green-500 flex items-center justify-center text-3xl font-bold hover:bg-green-500/20 disabled:cursor-not-allowed"
+                        disabled={!!cell || !isPlayerTurn || !!winner}
+                    >
+                        {cell}
+                    </button>
+                ))}
+            </div>
+            <div className="mt-4 text-xs">PLAYERS: 1 (VS JOSHUA)</div>
+        </div>
+    );
+};
+
+const SelfDestruct = ({ onExplode }) => {
+    const [count, setCount] = useState(10);
+    
+    useEffect(() => {
+        if (count > 0) {
+            playSound('siren');
+            const timer = setTimeout(() => setCount(c => c - 1), 1000);
+            return () => clearTimeout(timer);
+        } else {
+            onExplode();
+        }
+    }, [count, onExplode]);
+
+    return (
+        <div className="h-full flex flex-col items-center justify-center bg-red-950/50 animate-[pulse_0.5s_infinite]">
+            <Skull size={64} className="text-red-500 mb-4" />
+            <div className="text-6xl font-bold text-red-500 tabular-nums">{count.toFixed(2)}</div>
+            <div className="mt-4 text-red-400 font-bold text-xl text-center">SILENT RUNNING INITIATED<br/>ABANDON SHIP</div>
+        </div>
+    );
+};
+
+/* REUSED COMPONENTS */
+const BootSequence = ({ onComplete }) => {
+  const [lines, setLines] = useState([]);
+  useEffect(() => {
+    const sequence = [
+      "BIOS CHECK... OK",
+      "LOADING KERNEL... OK",
+      "MOUNTING VOLUMES... OK",
+      "INITIALIZING NEURAL NET... FAILED (IGNORING)",
+      "ESTABLISHING UPLINK...",
+      "SYSTEM READY."
+    ];
+    let delay = 0;
+    sequence.forEach((line, index) => {
+      delay += Math.random() * 800 + 200;
+      setTimeout(() => {
+        setLines(prev => [...prev, line]);
+        playSound('key');
+        if (index === sequence.length - 1) setTimeout(onComplete, 800);
+      }, delay);
+    });
+  }, [onComplete]);
+
+  return (
+    <div className="font-mono text-green-500 text-sm md:text-base p-8 space-y-2 h-full flex flex-col justify-end pb-20">
+      {lines.map((l, i) => <div key={i}>{l}</div>)}
+      <div className="animate-pulse">_</div>
+    </div>
+  );
+};
+
+const Starfield = () => {
+  const canvasRef = useRef(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    let animationFrameId;
+    let stars = Array.from({ length: 100 }, () => ({ x: Math.random() * canvas.width, y: Math.random() * canvas.height, z: Math.random() * 2, speed: Math.random() * 5 + 1 }));
+    const render = () => {
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = '#0f0';
+      stars.forEach(star => {
+        star.x = (star.x - canvas.width / 2) * (canvas.width / 2 + star.z) / (canvas.width / 2) + canvas.width / 2;
+        star.y = (star.y - canvas.height / 2) * (canvas.width / 2 + star.z) / (canvas.width / 2) + canvas.height / 2;
+        star.z -= star.speed;
+        if (star.z <= 0) { star.z = canvas.width; star.x = Math.random() * canvas.width; star.y = Math.random() * canvas.height; }
+        const size = (canvas.width - star.z) / canvas.width * 2;
+        ctx.fillRect((star.x - canvas.width / 2) * (canvas.width / star.z) + canvas.width / 2, (star.y - canvas.height / 2) * (canvas.width / star.z) + canvas.height / 2, size, size);
+      });
+      animationFrameId = requestAnimationFrame(render);
+    };
+    canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; render();
+    return () => cancelAnimationFrame(animationFrameId);
+  }, []);
+  return <canvas ref={canvasRef} className="w-full h-full opacity-80" />;
+};
+
+const Radar = () => (
+    <div className="w-full h-full flex items-center justify-center relative overflow-hidden">
+        <div className="w-64 h-64 border-2 border-green-500/50 rounded-full relative bg-green-900/10 shadow-[0_0_30px_rgba(34,197,94,0.2)]">
+            <div className="w-32 h-32 absolute top-0 left-0 origin-bottom-right border-r border-green-400 bg-gradient-to-l from-green-500/20 to-transparent animate-[spin_4s_linear_infinite] rounded-tl-full"></div>
+            <div className="absolute inset-0 border border-green-500/30 rounded-full scale-50"></div>
+            <div className="absolute inset-0 border border-green-500/30 rounded-full scale-75"></div>
+            <div className="absolute w-full h-[1px] bg-green-500/30 top-1/2 left-0"></div>
+            <div className="absolute h-full w-[1px] bg-green-500/30 left-1/2 top-0"></div>
+            <div className="absolute w-2 h-2 bg-green-400 rounded-full top-10 left-20 animate-pulse shadow-[0_0_10px_#4ade80]"></div>
+            <div className="absolute w-2 h-2 bg-red-500 rounded-full bottom-10 right-20 animate-pulse shadow-[0_0_10px_#ef4444]"></div>
+             <div className="absolute w-1 h-1 bg-white rounded-full top-1/2 left-1/2 shadow-[0_0_10px_#fff]"></div>
+        </div>
+        <div className="absolute bottom-4 left-4 font-mono text-green-500 text-xs">SECTOR: 7G<br/>STATUS: HOSTILE</div>
+        <div className="absolute top-4 right-4 font-mono text-green-500 text-xs text-right">RANGE: 2000m<br/>MOTION: DETECTED</div>
+    </div>
+);
+
+const MatrixRain = () => {
+    const canvasRef = useRef(null);
+    useEffect(() => {
+        const canvas = canvasRef.current; const ctx = canvas.getContext('2d');
+        canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+        const chars = '01'; const fontSize = 14; const columns = canvas.width / fontSize; const drops = Array(Math.floor(columns)).fill(1);
+        let animationId;
+        const draw = () => {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.05)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#0F0'; ctx.font = `${fontSize}px monospace`;
+            for(let i = 0; i < drops.length; i++) {
+                const text = chars[Math.floor(Math.random() * chars.length)]; ctx.fillText(text, i * fontSize, drops[i] * fontSize);
+                if(drops[i] * fontSize > canvas.height && Math.random() > 0.975) drops[i] = 0; drops[i]++;
+            }
+            animationId = requestAnimationFrame(draw);
+        };
+        draw(); return () => cancelAnimationFrame(animationId);
+    }, []);
+    return <canvas ref={canvasRef} className="w-full h-full opacity-60" />;
+}
+
+export default function RetroInterface() {
+  const [power, setPower] = useState(false);
+  const [booted, setBooted] = useState(false);
+  const [mode, setMode] = useState('TERMINAL'); 
+  const [terminalLog, setTerminalLog] = useState(["WELCOME TO OMEGA-SYSTEMS V2.0"]);
+  const [inputVal, setInputVal] = useState("");
+  const inputRef = useRef(null);
+  const [shake, setShake] = useState(false);
+
+  const handlePower = () => {
+    if (!power) { playSound('boot'); setPower(true); setBooted(false); } 
+    else { setPower(false); setBooted(false); setMode('TERMINAL'); setTerminalLog(["WELCOME TO OMEGA-SYSTEMS V2.0"]); }
+  };
+
+  const addLog = (text) => setTerminalLog(prev => [...prev.slice(-12), text]);
+
+  const handleCommand = (cmd) => {
+    const cleanCmd = cmd.trim().toUpperCase();
+    addLog(`> ${cleanCmd}`);
+    
+    // Easter Egg for WarGames
+    if (cleanCmd.includes("JOSHUA") || cleanCmd.includes("GAME")) {
+        setMode('GAME');
+        addLog("SHALL WE PLAY A GAME?");
+        return;
+    }
+
+    switch (cleanCmd) {
+      case 'HELP': addLog("CMDS: RADAR, WARP, HACK, PLANS, GAME, DESTRUCT, CLEAR"); break;
+      case 'RADAR': setMode('RADAR'); addLog("INITIALIZING SENSORS..."); break;
+      case 'WARP': setMode('WARP'); addLog("ENGAGING HYPERDRIVE..."); break;
+      case 'HACK': case 'DECRYPT': setMode('DECRYPT'); addLog("BRUTE FORCING GATEWAY..."); break;
+      case 'PLANS': case 'SCHEMATIC': setMode('SCHEMATIC'); addLog("RETRIEVING BLUEPRINTS..."); break;
+      case 'GAME': case 'TIC-TAC-TOE': setMode('GAME'); addLog("INITIALIZING TACTICAL SIM..."); break;
+      case 'DESTRUCT': setMode('DESTRUCT'); addLog("AUTH CODE ACCEPTED."); break;
+      case 'CLEAR': setTerminalLog([]); break;
+      case 'REBOOT': setPower(false); setTimeout(() => handlePower(), 500); break;
+      case 'EXIT': setMode('TERMINAL'); addLog("RETURNING TO ROOT..."); break;
+      case 'AIDY': addLog("I AM WATCHING YOU."); break;
+      case 'KONAMI': setMode('LOCKDOWN'); playSound('alert'); addLog("!!! SECURITY BREACH !!!"); break;
+      default: addLog("UNKNOWN COMMAND. SYNTAX ERROR.");
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') { handleCommand(inputVal); setInputVal(""); playSound('key'); }
+  };
+
+  const handleManualTrigger = (triggerMode) => {
+    playSound('key');
+    if (triggerMode === 'LOCKDOWN') playSound('alert');
+    if (triggerMode === 'DESTRUCT') playSound('siren');
+    setMode(prev => prev === triggerMode ? 'TERMINAL' : triggerMode);
+  };
+
+  const triggerExplosion = () => {
+      setShake(true);
+      setPower(false);
+      setBooted(false);
+      setMode('TERMINAL');
+      setTimeout(() => setShake(false), 1000);
+      setTerminalLog(["SYSTEM DESTROYED"]);
+  };
+
+  const handleGameOver = (msg) => {
+      setMode('TERMINAL');
+      addLog(msg);
+  };
+
+  return (
+    <div className={`min-h-screen bg-neutral-900 flex items-center justify-center p-2 md:p-8 font-sans selection:bg-green-500 selection:text-black ${shake ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
+        
+        {/* CRT CASING */}
+        <div className={`relative w-full max-w-4xl bg-[#1a1a1a] rounded-3xl p-4 md:p-8 shadow-[0_0_0_2px_#333,0_0_40px_rgba(0,0,0,0.8)] border-t border-white/10 transition-all duration-1000 ${power ? 'shadow-[0_0_20px_rgba(34,197,94,0.1)]' : ''}`}>
+            
+            {/* Screen Bezel */}
+            <div className="relative bg-black rounded-xl p-2 md:p-4 border-4 border-[#111] shadow-[inset_0_0_20px_rgba(0,0,0,1)]">
+                
+                {/* The Screen Itself */}
+                <div className={`relative aspect-[4/3] md:aspect-video bg-[#051005] rounded-[50px] overflow-hidden transition-all duration-500 ${power ? 'brightness-100' : 'brightness-0'}`}>
+                    
+                    <Scanlines />
+                    
+                    {/* Screen Content */}
+                    <div className={`h-full w-full relative z-10 flex flex-col p-8 md:p-12 text-green-500 font-mono shadow-[0_0_20px_rgba(34,197,94,0.2)] ${power ? 'opacity-100' : 'opacity-0'}`}>
+                        
+                        {/* CRT Flicker/Glow Wrapper */}
+                        <div className="h-full w-full animate-[flicker_0.15s_infinite] drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]">
+                            
+                            {!booted && power && <BootSequence onComplete={() => setBooted(true)} />}
+                            
+                            {booted && (
+                                <>
+                                    {/* Header */}
+                                    <div className="flex justify-between border-b border-green-500/30 pb-2 mb-4 text-xs md:text-sm uppercase tracking-widest">
+                                        <span>SYS.OP: AIDY</span>
+                                        <span>MEM: 128KB OK</span>
+                                        <span>{new Date().toLocaleTimeString()}</span>
+                                    </div>
+
+                                    {/* Main Display Area */}
+                                    <div className="flex-1 overflow-hidden relative border border-green-500/20 rounded bg-green-900/5 p-4">
+                                        
+                                        {mode === 'TERMINAL' && (
+                                            <div className="h-full flex flex-col" onClick={() => inputRef.current?.focus()}>
+                                                <div className="flex-1 overflow-y-auto space-y-1 scrollbar-hide">
+                                                    {terminalLog.map((line, i) => <div key={i} className="break-words">{line}</div>)}
+                                                </div>
+                                                <div className="flex mt-2">
+                                                    <span className="mr-2">{'>'}</span>
+                                                    <input 
+                                                        ref={inputRef} type="text" value={inputVal}
+                                                        onChange={(e) => setInputVal(e.target.value)} onKeyDown={handleKeyDown}
+                                                        className="bg-transparent outline-none flex-1 text-green-500 font-bold uppercase caret-green-500"
+                                                        autoFocus
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {mode === 'WARP' && <Starfield />}
+                                        {mode === 'RADAR' && <Radar />}
+                                        {mode === 'DECRYPT' && <MatrixRain />}
+                                        {mode === 'SCHEMATI
